@@ -35,7 +35,7 @@ async function scenario(tag, { theme, blockBubbleColors }) {
     await page.evaluate(setup); await wait(page, 700);
     const cur = { probe: await bubbleProbe(page), deep: await chatDeepProbe(page), snap: await snap(page) };
     states[name] = cur;
-    ok(`${tag}/${name}: mode appliqué (data-fld-mode=${name === 'clair' ? 'light' : 'dark'})`, cur.snap.mode === (name === 'clair' ? 'light' : 'dark') && !!(await page.$('#fld-style')));
+    ok(`${tag}/${name}: ${name === 'clair' ? 'Clair appliqué (<style fld-style> présent)' : '1.2.0 : Sombre = aucun <style>, data-fld-mode=dark seulement'}`, cur.snap.mode === (name === 'clair' ? 'light' : 'dark') && (name === 'clair') === !!(await page.$('#fld-style')));
     const dp = diffProbe(off.probe, cur.probe);
     ok(`${tag}/${name}: .mes_text (bot+user), .mes, .mes_block, em, i, q, strong, a, p, nom + variables --SmartTheme* : IDENTIQUES à Désactivé (${Object.keys(off.probe).length} sondes × ${18} props)`, dp.length === 0, dp.slice(0, 8).join(' | '));
     const dd = diffDeep(off.deep, cur.deep);
@@ -46,8 +46,9 @@ async function scenario(tag, { theme, blockBubbleColors }) {
       ok(`${tag}/clair: body, #chat, top-bar, #form_sheld, #send_textarea clairs, texte du champ sombre`, [s.bodyBg, s.chatBg, s.topBg, s.formBg, s.taBg].every(isLight) && isDark(s.taFg), JSON.stringify([s.bodyBg, s.chatBg, s.topBg, s.formBg, s.taBg, s.taFg]));
       ok(`${tag}/clair: color-scheme light, theme-color #ffffff`, s.scheme === 'light' && s.meta === '#ffffff', `${s.scheme} ${s.meta}`);
     } else {
-      ok(`${tag}/sombre: body #000, top-bar, form, champ sombres`, s.bodyBg === 'rgb(0, 0, 0)' && [s.topBg, s.formBg, s.taBg].every(isDark), JSON.stringify([s.bodyBg, s.topBg, s.formBg, s.taBg]));
-      ok(`${tag}/sombre: color-scheme dark, theme-color #000000`, s.scheme === 'dark' && s.meta === '#000000', `${s.scheme} ${s.meta}`);
+      // 1.2.0 : le sombre est le thème tel quel (les valeurs sont celles de « Désactivé »), theme-color = fond réel de body
+      ok(`${tag}/sombre: body/top-bar/form/champ = EXACTEMENT ceux de Désactivé (thème intact)`, [s.bodyBg, s.topBg, s.formBg, s.taBg, s.taFg, s.chatBg, s.scheme].join('|') === [off.snap.bodyBg, off.snap.topBg, off.snap.formBg, off.snap.taBg, off.snap.taFg, off.snap.chatBg, off.snap.scheme].join('|'), JSON.stringify([s, off.snap]));
+      ok(`${tag}/sombre: color-scheme inchangé, theme-color = fond réel de body (lu dans le DOM)`, s.scheme === off.snap.scheme && s.meta.toLowerCase() === '#' + s.bodyBg.match(/\d+/g).slice(0, 3).map(n => (+n).toString(16).padStart(2, '0')).join(''), `${s.scheme} ${s.meta} ${s.bodyBg}`);
     }
     ok(`${tag}/${name}: #form_sheld position fixed et mêmes coordonnées qu'en Désactivé`, s.formPos === 'fixed' && JSON.stringify(s.formRect) === JSON.stringify(off.snap.formRect), JSON.stringify([off.snap.formRect, s.formRect]));
     await page.screenshot({ path: `${SH}fld2-${tag}-${name === 'clair' ? 1 : 2}-${name}.png` });

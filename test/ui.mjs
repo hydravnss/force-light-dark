@@ -1,4 +1,4 @@
-// v1.1.0 — fonctionnel : modes, Auto en direct, horaire, bouton rapide, panneau (SANS UI de bulles), persistance,
+// v1.2.0 (mis à jour) — fonctionnel : modes, Auto en direct, horaire, bouton rapide, panneau (SANS UI de bulles), persistance,
 // migration des anciens réglages (≤ 1.0.x), pas de flash, aucune erreur console.
 import fs from 'node:fs';
 import { launch, inject, snap, wait, loadChat, bubbleProbe, diffProbe } from './lib.mjs';
@@ -26,16 +26,16 @@ await wait(page, 3000);
 const serverAfter = JSON.parse(fs.readFileSync(SETF, 'utf8')).extension_settings['force-light-dark'];
 
 let cur = await stSettings(page);
-ok('migration: clés de bulles supprimées (paint, bot, user, userText), schema=2', !('paint' in cur) && Object.values(cur.colors).every(c => !('bot' in c) && !('user' in c) && !('userText' in c)) && cur.schema === 2, JSON.stringify(cur));
-ok('migration: réglages utiles conservés (mode, horaire, transition, hideBg, fab, bg/text/em valides)', cur.mode === 'dark' && cur.lightFrom === '08:00' && cur.darkFrom === '21:30' && cur.transition === true && cur.hideBg === false && cur.toast === false && cur.fabX === 70 && cur.fabSize === 50 && cur.colors.light.bg === '#fafafa' && cur.colors.light.text === '#111111' && cur.colors.light.em === '#555555' && cur.colors.dark.bg === '#050505' && cur.colors.dark.text === '#e0e0e0', JSON.stringify(cur));
-ok('migration: valeur invalide (em="PAS-UNE-COULEUR") remplacée par la valeur par défaut', cur.colors.dark.em === '#919191', cur.colors.dark.em);
-ok('migration: la version nettoyée est ENREGISTRÉE côté serveur (settings.json)', serverAfter && !('paint' in serverAfter) && serverAfter.schema === 2 && !('bot' in serverAfter.colors.light) && serverAfter.colors.light.bg === '#fafafa', JSON.stringify(serverAfter).slice(0, 300));
+ok('migration: clés de bulles supprimées (paint, bot, user, userText), schema=3 + colors.dark supprimé', !('paint' in cur) && Object.values(cur.colors).every(c => !('bot' in c) && !('user' in c) && !('userText' in c)) && !('dark' in cur.colors) && cur.schema === 3, JSON.stringify(cur));
+ok('migration: réglages utiles conservés (mode, horaire, transition, hideBg, fab, bg/text/em valides)', cur.mode === 'dark' && cur.lightFrom === '08:00' && cur.darkFrom === '21:30' && cur.transition === true && cur.hideBg === false && cur.toast === false && cur.fabX === 70 && cur.fabSize === 50 && cur.colors.light.bg === '#fafafa' && cur.colors.light.text === '#111111' && cur.colors.light.em === '#555555' && cur.colors.light.panel === '#f2f2f7', JSON.stringify(cur));
+ok('migration: aucune couleur sombre conservée (colors.dark absent)', !('dark' in cur.colors), JSON.stringify(cur.colors));
+ok('migration: la version nettoyée est ENREGISTRÉE côté serveur (settings.json)', serverAfter && !('paint' in serverAfter) && serverAfter.schema === 3 && !('dark' in serverAfter.colors) && !('bot' in serverAfter.colors.light) && serverAfter.colors.light.bg === '#fafafa', JSON.stringify(serverAfter).slice(0, 300));
 const ls = await page.evaluate(() => JSON.parse(localStorage.getItem('fld_cache_v1')));
 ok('migration: cache localStorage aussi nettoyé', !('paint' in ls) && !('bot' in ls.colors.light), JSON.stringify(ls).slice(0, 200));
 // retour à un état propre
 await page.evaluate(() => { ForceLightDark.setMode('off'); localStorage.removeItem('fld_cache_v1'); });
 await wait(page, 2500); await page.reload(); await wait(page, 7000);
-await page.evaluate(() => { const S = SillyTavern.getContext().extensionSettings['force-light-dark']; S.transition = false; S.hideBg = true; S.toast = true; S.fabShow = false; S.lightFrom = '07:00'; S.darkFrom = '20:00'; S.colors = { light: { bg: '#ffffff', text: '#000000', em: '#6e6e73' }, dark: { bg: '#000000', text: '#f2f2f7', em: '#919191' } }; });
+await page.evaluate(() => { const S = SillyTavern.getContext().extensionSettings['force-light-dark']; S.transition = false; S.hideBg = true; S.toast = true; S.fabShow = false; S.lightFrom = '07:00'; S.darkFrom = '20:00'; S.colors = { light: { bg: '#ffffff', panel: '#f2f2f7', text: '#000000', em: '#6e6e73' } }; });
 await page.evaluate(() => ForceLightDark.reapply());
 await loadChat(page); await inject(page); await wait(page, 500);
 
@@ -54,7 +54,7 @@ const ui = await page.evaluate(() => {
     labels: [...root.querySelectorAll('label.fld-row span')].map(e => e.textContent) };
 });
 ok('panneau: plus de sélecteur « élément portant le fond des bulles » ni d\'aperçu de bulles', !ui.paint && !ui.prev && !/portant le fond|Bulle reçue|Bulle envoyée|bulles\s*\(/i.test(ui.txt.replace('Les bulles de chat (et le texte des messages) ne sont jamais modifiées', '')), JSON.stringify(ui).slice(0, 300));
-ok('panneau: seulement 3 couleurs par mode (bg, text, em) — aucun sélecteur bot / user / userText', JSON.stringify(ui.colorIds) === JSON.stringify(['fld_c_light_bg', 'fld_c_light_text', 'fld_c_light_em', 'fld_c_dark_bg', 'fld_c_dark_text', 'fld_c_dark_em']), JSON.stringify(ui.colorIds));
+ok('panneau: 4 couleurs Clair seulement (bg, panel, text, em) — aucune couleur Sombre, aucun sélecteur bulle', JSON.stringify(ui.colorIds) === JSON.stringify(['fld_c_light_bg', 'fld_c_light_panel', 'fld_c_light_text', 'fld_c_light_em']), JSON.stringify(ui.colorIds));
 ok('panneau: mention « bulles jamais modifiées »', /ne sont jamais modifiées/.test(ui.txt));
 await page.screenshot({ path: SH + 'fld2-11-panneau-desactive.png' });
 
@@ -77,7 +77,7 @@ await page.evaluate(() => document.getElementById('fld_reset_light').click()); a
 s = await snap(page); ok('reset couleurs Clair', s.bodyBg === 'rgb(255, 255, 255)', s.bodyBg);
 await page.selectOption('#fld_mode', 'dark'); await wait(page, 600);
 s = await snap(page);
-ok('Sombre: noir, theme-color #000000, bulles identiques, barre fixe inchangée', s.bodyBg === 'rgb(0, 0, 0)' && s.meta === '#000000' && diffProbe(baseProbe, await bubbleProbe(page)).length === 0 && JSON.stringify(s.formRect) === JSON.stringify(base));
+ok('Sombre: thème intact (noir), theme-color = fond réel #000000, aucun <style>, bulles identiques, barre fixe inchangée', s.bodyBg === 'rgb(0, 0, 0)' && s.meta === '#000000' && !(await page.$('#fld-style')) && diffProbe(baseProbe, await bubbleProbe(page)).length === 0 && JSON.stringify(s.formRect) === JSON.stringify(base));
 await page.screenshot({ path: SH + 'fld2-13-panneau-sombre.png' });
 // intensité douce : le CSS dur du thème reprend pour le reste
 await page.selectOption('#fld_intensity', 'soft'); await wait(page, 400);

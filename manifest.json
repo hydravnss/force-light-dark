@@ -6,9 +6,9 @@
     "js": "index.js",
     "css": "style.css",
     "author": "hydravnss",
-    "version": "1.1.0",
+    "version": "1.2.0",
     "homePage": "https://github.com/hydravnss/force-light-dark",
     "minimum_client_version": "1.12.0",
     "auto_update": true,
-    "description": "FR: FORCE le mode clair ou sombre par-dessus le thème (page, barre du haut, tiroirs, popups, champs, barre d'envoi, barres de défilement, theme-color) : Forcer Clair, Forcer Sombre, Auto (suit l'iPhone en direct), Désactivé. Les bulles de chat ne sont JAMAIS touchées. Bouton rapide, horaire. EN: forces light/dark over any theme; chat bubbles are never touched."
+    "description": "FR: force le mode CLAIR par-dessus le thème (page, barre du haut, tiroirs, popups, champs, barre d'envoi). Le mode sombre = VOTRE thème, strictement inchangé (aucun style, fond ni variable posé). Auto : clair/sombre selon l'iPhone ou l'horaire. Les bulles de chat ne sont JAMAIS touchées. EN: forces light mode over any theme; dark = your theme untouched (nothing applied); chat bubbles never touched."
 }

@@ -1,6 +1,20 @@
 # Force Light Dark
 
-Extension **SillyTavern** qui **FORCE** le mode clair ou sombre **par-dessus le thème** (page, barre du haut, tiroirs, popups, champs, barre d'envoi, barres de défilement, `theme-color`), même quand celui-ci écrit ses couleurs en dur avec `!important`.
+Extension **SillyTavern** qui **FORCE le mode CLAIR par-dessus le thème** (page, barre du haut, tiroirs, popups, champs, barre d'envoi, barres de défilement, `theme-color`), même quand celui-ci écrit ses couleurs en dur avec `!important`.
+
+## 🌙 Le mode sombre, c'est VOTRE thème, tel quel (depuis la 1.2.0)
+
+Depuis la 1.1.0, la barre du haut et la barre d'envoi pouvaient virer au **gris anthracite** sur un thème noir OLED (ex. « iMessage Dark »), car l'extension peignait aussi le « sombre ». **Corrigé en 1.2.0 : l'extension ne modifie plus rien en sombre.**
+
+| Situation | Ce que l'extension applique |
+|---|---|
+| ○ **Désactivé** | **Rien** (aucun `<style>`, aucune variable, aucun attribut de style) |
+| 🌙 **Sombre** (et 🌗 **Auto** quand l'iPhone est en sombre) | **Rien qui change l'apparence** : **aucun `<style>`**, aucune variable `--SmartTheme*`, **aucun fond** (ni page, ni barre du haut, ni barre d'envoi, ni tiroirs, ni champ), aucun `color-scheme`. Seul geste (réglage « theme-color », actif par défaut) : la balise `<meta name="theme-color">` prend la **couleur de fond réelle de la page, lue dans le DOM** (`getComputedStyle(body)`), jamais une valeur codée en dur ; décochez le réglage pour ne rien toucher du tout |
+| ☀️ **Clair** (et 🌗 **Auto** quand l'iPhone est en clair) | Le forçage clair (voir ci-dessous) |
+
+En quittant le Clair, le `<style id="fld-style">` est **retiré** : le retour au sombre est exact (vérifié : styles calculés **et** captures pixel pour pixel identiques à « extension désinstallée »).
+
+**Il n'y a plus aucune couleur sombre** : le sombre, c'est votre thème. Le panneau ne propose que les couleurs du **Clair**.
 
 ## ⛔ Les bulles de chat ne sont JAMAIS touchées (depuis la 1.1.0)
 
@@ -28,9 +42,9 @@ Puis recharger la page. Réglages : Extensions > **Force Light Dark**. L'extensi
 
 | Mode | Effet |
 |---|---|
-| ☀️ **Forcer Clair** | Clair imposé sur l'interface (fond `#fff`, texte noir, panneaux/champs clairs) |
-| 🌙 **Forcer Sombre** | Sombre imposé, noir OLED (fond `#000`, texte `#f2f2f7`) |
-| 🌗 **Auto** | Suit le réglage clair/sombre de l'iPhone (`prefers-color-scheme`), **en direct** sans recharger ; ou **horaire** (ex. clair dès 07:00, sombre dès 20:00) |
+| ☀️ **Forcer Clair** | Clair imposé sur l'interface : fond de page `#ffffff`, **barre du haut / barre d'envoi / panneaux `#f2f2f7`**, champs blancs, texte noir. Les bulles ne bougent pas |
+| 🌙 **Sombre** | **Votre thème tel quel** : l'extension n'applique rien (voir ci-dessus) |
+| 🌗 **Auto** | Suit le réglage clair/sombre de l'iPhone (`prefers-color-scheme`), **en direct** sans recharger ; ou **horaire** (ex. clair dès 07:00, sombre dès 20:00). Sombre = votre thème tel quel |
 | ○ **Désactivé** | Rien n'est modifié ; tout est restauré (theme-color, attributs, `<style>`) |
 
 ### Bouton rapide
@@ -41,31 +55,32 @@ Puis recharger la page. Réglages : Extensions > **Force Light Dark**. L'extensi
 ## Réglages
 
 - **Intensité du forçage** : *Total* (défaut : écrase aussi les règles en dur du thème pour l'interface) ou *Doux* (variables `--SmartTheme*` hors `#chat` seulement).
-- **Couleurs personnalisables par mode** : fond de page, texte de l'interface, texte atténué (placeholder…), avec boutons de réinitialisation. **Aucune couleur de bulle.**
+- **Couleurs du mode Clair** : fond de page / champs (`#ffffff`), barres et panneaux (`#f2f2f7`), texte (`#000000`), texte atténué (placeholder…), avec bouton de réinitialisation. **Aucune couleur sombre** (le sombre = votre thème) et **aucune couleur de bulle.**
 - **Masquer l'image de fond** (mode Total), **transition en fondu** (désactivée par défaut, active 600 ms pendant un changement, hors `#chat`), **theme-color / barre d'état**, notification au changement rapide.
 - Bouton **Tout réinitialiser**.
 
-### Migration depuis la 1.0.x
+### Migration
 
-Les anciens réglages sont migrés automatiquement au premier chargement : `paint` (élément portant le fond des bulles) et les couleurs `bot` / `user` / `userText` sont **supprimés** (y compris du cache `localStorage` et de `settings.json` côté serveur) ; le mode, l'horaire, l'intensité, le bouton rapide et les couleurs de fond / texte / italique déjà choisies sont conservés. Les valeurs invalides sont remplacées par les valeurs par défaut.
+- **depuis la 1.1.x** : `colors.dark` (fond / texte / atténué sombres) est **supprimé** (mémoire, cache `localStorage` et `settings.json` côté serveur) ; vos couleurs Clair (fond, texte, atténué) sont conservées, la couleur des barres/panneaux Clair prend sa valeur par défaut `#f2f2f7` ; le mode, l'horaire, l'intensité, le bouton rapide sont conservés (un mode « Sombre » reste « Sombre » = votre thème, sans rien appliquer). `schema` passe à 3.
+- **depuis la 1.0.x** : `paint` (élément portant le fond des bulles) et les couleurs `bot` / `user` / `userText` sont supprimés. Les valeurs invalides sont remplacées par les valeurs par défaut.
 
-## Comment le forçage fonctionne
+## Comment le forçage Clair fonctionne
 
-- `<style id="fld-style">` est injecté comme **dernier élément de `<head>`** et y est remis par un `MutationObserver` si un autre style est ajouté après (avec garde-fou anti-boucle).
+- (Clair seulement) `<style id="fld-style">` est injecté comme **dernier élément de `<head>`** et y est remis par un `MutationObserver` si un autre style est ajouté après (avec garde-fou anti-boucle).
 - Les sélecteurs sont préfixés par `html.fld-active[data-fld-mode="…"]:not(#fld_x):not(#fld_y)` (deux id de spécificité en plus) + `!important` : ils gagnent contre les règles `!important` d'un thème, **même si elles sont injectées après**. Les règles génériques (champs, popups, boutons, barres de défilement…) excluent `#chat *`.
-- Forcé : fond de page, `#bg1`/`#bg_custom`, `#sheld`/`#chat` (fond du conteneur seulement), barre du haut, tiroirs, menus, popups, champs, boutons, barre d'envoi (`#form_sheld`, `#send_form`, `#send_textarea` : **couleurs seulement**), barres de défilement, `color-scheme`, `<meta name="theme-color">` et `apple-mobile-web-app-status-bar-style`.
+- Forcé **en Clair** : fond de page, `#bg1`/`#bg_custom`, `#sheld`/`#chat` (fond du conteneur seulement), barre du haut, tiroirs, menus, popups, champs, boutons, barre d'envoi (`#form_sheld`, `#send_form`, `#send_textarea` : **couleurs seulement**), barres de défilement, `color-scheme`, `<meta name="theme-color">` et `apple-mobile-web-app-status-bar-style`.
 - **Aucun `transform`, `filter` ni `position` n'est posé** : votre barre d'envoi fixe (`#form_sheld { position: fixed }`) et vos réglages `translateY` / `100dvh` ne bougent pas (position vérifiée identique en clair et en sombre).
 - **Pas de flash au chargement** : le mode est appliqué dès le chargement du script depuis un cache `localStorage` (synchrone), puis depuis les réglages enregistrés. `loading_order` est 999 pour passer après les autres extensions.
 
 ## Pour votre propre CSS
 
-L'extension pose sur `<html>` : `data-fld-mode="light|dark"` (mode **effectif**), `data-fld-setting="off|light|dark|auto"` et les classes `fld-active` + `fld-light` / `fld-dark`. Exemple :
+L'extension pose sur `<html>` : `data-fld-mode="light|dark"` (mode **effectif**), `data-fld-setting="off|light|dark|auto"` et les classes `fld-light` (+ `fld-active`) ou `fld-dark`. Ces attributs ne changent aucun style par eux-mêmes ; seul le Clair injecte un `<style>`. Exemple :
 
 ```css
-html[data-fld-mode="dark"] #send_textarea { border-color: #333 !important; }
+html[data-fld-mode="light"] #send_textarea { border-color: #c7c7cc !important; }
 ```
 
-Variables disponibles : `--fld-bg`, `--fld-panel`, `--fld-input`, `--fld-text`, `--fld-em`.
+Variables disponibles (**Clair seulement**) : `--fld-bg`, `--fld-panel`, `--fld-input`, `--fld-text`, `--fld-em`.
 API console : `ForceLightDark.setMode('light'|'dark'|'auto'|'off')`, `ForceLightDark.cycle()`, `ForceLightDark.getEffective()`.
 
 ## Avec autolightdark
@@ -80,12 +95,13 @@ Depuis la 1.1.0, Force Light Dark **n'interagit plus** avec [`autolightdark`](ht
 
 ## Tests
 
-Voir `test/` (Playwright WebKit, émulation iPhone 14 Pro).
+Voir `test/` (Playwright WebKit, émulation iPhone 14 Pro, vrai SillyTavern 1.19.0).
 
-- `test/bubbles.mjs` : pour 3 scénarios (thème « iMessage Dark » approximé + bubble-colors actif ; thème seul ; ST par défaut), en Désactivé / Clair / Sombre / Auto / Doux, compare le style calculé de `.mes_text` (bot et user), `.mes`, `.mes_block`, `em`, `i`, `q`, `strong`, `a`, `p`, nom, **toutes** les propriétés calculées de **tous** les éléments de chaque message, et les variables `--SmartTheme*` vues depuis un message : **identiques à Désactivé**. Vérifie aussi que le reste (page, barre du haut, tiroirs, champ, barre d'envoi, `theme-color`) bascule bien et que `#form_sheld` ne bouge pas.
-- `test/ui.mjs` : panneau sans UI de bulles, migration des réglages 1.0.x, modes, Auto en direct, horaire, bouton rapide, persistance, pas de flash, aucune erreur console.
+- `test/fld3.mjs` (**1.2.0, le sombre n'applique rien**) : approximation de « iMessage Dark » où `#top-bar` / `#top-settings-holder` / `#send_form` sont transparents et `#form_sheld` noir. Même séquence jouée dans une session **sans l'extension** (requêtes bloquées, référence) et **avec** (Désactivé → Sombre → Auto sombre → Clair → retour Sombre → retour Désactivé) : toutes les propriétés de **peinture** (couleurs, fonds, bordures, ombres, filtres, `backdrop-filter`, opacité, `color-scheme`, variables `--SmartTheme*`) de `#top-bar`, `#top-settings-holder`, `#form_sheld`, `#send_form`, `#nonQRFormItems`, `#send_textarea`, `body`, `#sheld`, `html` et **tous leurs descendants** (~16 000 éléments × propriétés, `::before` / `::after` / `::placeholder` compris, tiroir ouvert compris) sont **identiques**, et les **captures** sont identiques **pixel pour pixel** (PIL). Le Clair s'applique et le retour au sombre restaure exactement. Une 2ᵉ session de référence sert de témoin (0 écart entre deux sessions sans extension). `--v110` rejoue le test avec l'ancien `index.js` pour montrer que le test détecte la régression.
+- `test/bubbles.mjs` : bulles jamais touchées (3 scénarios, Désactivé / Clair / Sombre / Auto).
+- `test/ui.mjs` : panneau, migration, modes, Auto en direct, horaire, bouton rapide, persistance, pas de flash.
 
-**Non vérifié** : vrai iPhone / Safari iOS, PWA plein écran, vrai thème « iMessage Dark » (approximé), rendu exact de la barre d'état iOS.
+**Non vérifié** : vrai iPhone / Safari iOS, PWA plein écran, vrai thème « iMessage Dark » (approximé), rendu exact de la barre d'état iOS. Remarque : WebKit renvoie un style calculé périmé pour des éléments `display:none` après le retrait d'une feuille de style (artefact du moteur, reproduit sans l'extension, sans effet visible) ; le test force donc un recalcul identique des deux côtés.
 
 ## Licence
 
