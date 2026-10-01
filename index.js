@@ -1,15 +1,21 @@
 /**
- * Force Light Dark — extension SillyTavern (v1.0.0)
+ * Force Light Dark — extension SillyTavern (v1.1.0)
  *
- * FORCE le mode clair ou sombre PAR-DESSUS le thème, même quand celui-ci écrit des couleurs sombres en dur avec
- * !important (ex. thème « iMessage Dark » : `#chat .mes .mes_text { background: #262628 !important }`).
+ * FORCE le mode clair ou sombre PAR-DESSUS le thème (page, barre du haut, tiroirs, popups, champs, barre d'envoi,
+ * barres de défilement, theme-color), même quand le thème écrit des couleurs sombres en dur avec !important.
+ *
+ * ⛔ LES BULLES DE CHAT NE SONT JAMAIS TOUCHÉES (depuis la 1.1.0) : aucune règle sur `.mes`, `.mes_block`, `.mes_text`
+ * (fond, couleur, bordure), ni sur em / i / q / strong / a à l'intérieur des messages. Pour que les bulles gardent
+ * exactement ce que décident le thème (ex. « iMessage Dark ») et les autres extensions (ex. bubble-colors), les
+ * variables --SmartThemeBodyColor / EmColor / QuoteColor / UnderlineColor / BorderColor / ShadowColor / BlurTintColor
+ * ne sont PAS posées sur :root (les bulles les hériteraient) mais uniquement sur les conteneurs HORS #chat :
+ * `body > :not(#sheld)` et `#sheld > :not(#chat)`. --SmartThemeUserMesBlurTintColor, --SmartThemeBotMesBlurTintColor
+ * et --SmartThemeChatTintColor ne sont jamais écrites.
  *
  * Mécanisme :
  *  - <style id="fld-style"> toujours DERNIER dans <head> (MutationObserver + garde-fou anti-boucle) ;
  *  - sélecteurs préfixés par `html.fld-active[data-fld-mode="…"]:not(#fld_x):not(#fld_y)` (= 2 ids de spécificité en plus),
  *    donc plus forts que n'importe quelle règle de thème à !important égal, quel que soit l'ordre ;
- *  - surcharge des variables --SmartTheme* sur :root ET des vraies règles (bulles, barre d'envoi, barre du haut, tiroirs,
- *    popups, champs, liens, barres de défilement…) ;
  *  - color-scheme, <meta name="theme-color">, classe + attributs sur <html> pour votre propre CSS ;
  *  - AUCUN transform / filter / position posé sur un ancêtre : la barre d'envoi fixe n'est pas touchée (couleurs seulement).
  *
@@ -23,20 +29,20 @@ const NAME = 'force-light-dark';
 const LOG = '[Force Light Dark]';
 const STYLE_ID = 'fld-style';
 const CACHE_KEY = 'fld_cache_v1';
+const SCHEMA = 2;
 const MODES = ['off', 'light', 'dark', 'auto'];
 const MODE_LABEL = { off: 'Désactivé', light: 'Forcer Clair', dark: 'Forcer Sombre', auto: 'Auto' };
 const MODE_ICON = { off: '○', light: '☀️', dark: '🌙', auto: '🌗' };
-const COLOR_KEYS = ['bg', 'bot', 'user', 'text', 'userText', 'em'];
-const COLOR_LABEL = {
-    bg: 'Fond', bot: 'Bulle reçue', user: 'Bulle envoyée', text: 'Texte', userText: 'Texte (bulle envoyée)', em: 'Italique (em/i)',
-};
+const COLOR_KEYS = ['bg', 'text', 'em'];
+const COLOR_LABEL = { bg: 'Fond de page', text: 'Texte (interface)', em: 'Texte atténué (placeholder…)' };
 
 const DEFAULT_COLORS = Object.freeze({
-    light: Object.freeze({ bg: '#ffffff', bot: '#e9e9eb', user: '#0a84ff', text: '#000000', userText: '#ffffff', em: '#6e6e73' }),
-    dark: Object.freeze({ bg: '#000000', bot: '#262628', user: '#0a84ff', text: '#f2f2f7', userText: '#ffffff', em: '#919191' }),
+    light: Object.freeze({ bg: '#ffffff', text: '#000000', em: '#6e6e73' }),
+    dark: Object.freeze({ bg: '#000000', text: '#f2f2f7', em: '#919191' }),
 });
 
 const DEFAULTS = Object.freeze({
+    schema: SCHEMA,
     mode: 'off',            // off | light | dark | auto
     intensity: 'total',     // total | soft
     autoSource: 'system',   // system | schedule
@@ -44,7 +50,6 @@ const DEFAULTS = Object.freeze({
     darkFrom: '20:00',
     transition: false,
     hideBg: true,           // masque l'image de fond de SillyTavern quand on force (mode Total)
-    paint: 'mes_text',      // mes_text | mes_block | mes | auto | none : élément qui porte le fond des bulles
     themeColorMeta: true,
     wandEntry: true,
     toast: true,
@@ -64,21 +69,20 @@ const mix = (a, b, t) => { const A = hexToRgb(a); const B = hexToRgb(b); return 
 const rgba = (h, a) => { const [r, g, b] = hexToRgb(h); return `rgba(${r}, ${g}, ${b}, ${a})`; };
 const luminance = (h) => { const [r, g, b] = hexToRgb(h); return (0.299 * r + 0.587 * g + 0.114 * b) / 255; };
 
-/** Déduit la palette complète d'un mode à partir des 6 couleurs réglables. */
+/** Déduit la palette complète d'un mode à partir des 3 couleurs réglables (aucune couleur de bulle). */
 export function buildPalette(mode, c) {
     const dark = mode === 'dark';
     const panel = dark ? mix(c.bg, '#ffffff', 0.10) : mix(c.bg, '#000000', 0.045);
     const input = dark ? mix(c.bg, '#ffffff', 0.14) : mix(c.bg, '#000000', 0.07);
     return {
         mode, scheme: dark ? 'dark' : 'light',
-        bg: c.bg, bot: c.bot, user: c.user, text: c.text, userText: c.userText, em: c.em,
-        userEm: mix(c.userText, c.user, 0.22),
+        bg: c.bg, text: c.text, em: c.em,
+        accent: '#0a84ff',
         panel, input,
         border: dark ? 'rgba(255, 255, 255, 0.14)' : 'rgba(0, 0, 0, 0.16)',
         shadow: dark ? 'rgba(0, 0, 0, 0.6)' : 'rgba(0, 0, 0, 0.18)',
         quote: dark ? '#8ecbff' : '#0a58b5',
         link: dark ? '#64b5ff' : '#0a6cff',
-        codeBg: dark ? 'rgba(255, 255, 255, 0.10)' : 'rgba(0, 0, 0, 0.07)',
         scroll: dark ? 'rgba(255, 255, 255, 0.28)' : 'rgba(0, 0, 0, 0.28)',
         rgb: hexToRgb(c.text),
     };
@@ -87,19 +91,26 @@ export function buildPalette(mode, c) {
 // ---------------------------------------------------------------------------------------------------------------
 // Réglages
 // ---------------------------------------------------------------------------------------------------------------
-function sanitize(s) {
+/**
+ * Normalise les réglages ET migre les anciennes versions (≤ 1.0.x) : les clés de bulles (paint, colors.*.bot / user /
+ * userText) sont SUPPRIMÉES ; fond / texte / em déjà choisis sont conservés. Renvoie un NOUVEL objet (clés inconnues retirées).
+ */
+function sanitize(src) {
     const d = DEFAULTS;
-    if (!MODES.includes(s.mode)) s.mode = d.mode;
-    if (!['total', 'soft'].includes(s.intensity)) s.intensity = d.intensity;
-    if (!['system', 'schedule'].includes(s.autoSource)) s.autoSource = d.autoSource;
-    for (const k of ['lightFrom', 'darkFrom']) if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(String(s[k]))) s[k] = d[k];
-    for (const k of ['transition', 'hideBg', 'themeColorMeta', 'wandEntry', 'toast', 'fabShow']) s[k] = typeof s[k] === 'boolean' ? s[k] : d[k];
-    if (!['mes_text', 'mes_block', 'mes', 'auto', 'none'].includes(s.paint)) s.paint = d.paint;
+    const o = (src && typeof src === 'object') ? src : {};
+    const s = {};
+    s.schema = SCHEMA;
+    s.mode = MODES.includes(o.mode) ? o.mode : d.mode;
+    s.intensity = ['total', 'soft'].includes(o.intensity) ? o.intensity : d.intensity;
+    s.autoSource = ['system', 'schedule'].includes(o.autoSource) ? o.autoSource : d.autoSource;
+    for (const k of ['lightFrom', 'darkFrom']) s[k] = /^([01]\d|2[0-3]):[0-5]\d$/.test(String(o[k])) ? String(o[k]) : d[k];
+    for (const k of ['transition', 'hideBg', 'themeColorMeta', 'wandEntry', 'toast', 'fabShow']) s[k] = typeof o[k] === 'boolean' ? o[k] : d[k];
     const num = (v, lo, hi, def) => { v = Number(v); return Number.isFinite(v) ? Math.min(hi, Math.max(lo, Math.round(v))) : def; };
-    s.fabX = num(s.fabX, 0, 100, d.fabX); s.fabY = num(s.fabY, 0, 100, d.fabY); s.fabSize = num(s.fabSize, 32, 72, d.fabSize);
-    if (!s.colors || typeof s.colors !== 'object') s.colors = {};
+    s.fabX = num(o.fabX, 0, 100, d.fabX); s.fabY = num(o.fabY, 0, 100, d.fabY); s.fabSize = num(o.fabSize, 32, 72, d.fabSize);
+    const oc = (o.colors && typeof o.colors === 'object') ? o.colors : {};
+    s.colors = {};
     for (const m of ['light', 'dark']) {
-        const cur = (s.colors[m] && typeof s.colors[m] === 'object') ? s.colors[m] : {};
+        const cur = (oc[m] && typeof oc[m] === 'object') ? oc[m] : {};
         s.colors[m] = {};
         for (const k of COLOR_KEYS) s.colors[m][k] = HEX_RE.test(String(cur[k])) ? String(cur[k]).toLowerCase() : DEFAULT_COLORS[m][k];
     }
@@ -107,6 +118,7 @@ function sanitize(s) {
 }
 
 let S = null;
+let migrated = false; // des réglages ≤ 1.0.x ont été nettoyés et restent à enregistrer
 function readCache() {
     try { const raw = localStorage.getItem(CACHE_KEY); return raw ? JSON.parse(raw) : null; } catch { return null; }
 }
@@ -114,12 +126,15 @@ function writeCache() {
     try { localStorage.setItem(CACHE_KEY, JSON.stringify(S)); } catch { /* stockage indisponible */ }
 }
 /** Charge les réglages : extension_settings (vérité) sinon cache localStorage sinon défauts. */
-function loadSettings() {
+function loadSettings(persistMigration = false) {
     let src = null;
     try { src = extension_settings && extension_settings[NAME]; } catch { /* ignore */ }
     if (!src || typeof src !== 'object') src = readCache() || {};
-    S = sanitize(Object.assign({}, DEFAULTS, src));
+    const old = src.schema !== SCHEMA || 'paint' in src || (src.colors && Object.values(src.colors).some((c) => c && ('bot' in c || 'user' in c || 'userText' in c)));
+    S = sanitize(src);
     try { if (extension_settings) extension_settings[NAME] = S; } catch { /* ignore */ }
+    if (old) { migrated = true; writeCache(); } // ancienne version : le cache est réécrit sans réglages de bulles
+    if (migrated && persistMigration) { migrated = false; save(); } // et la version nettoyée est enregistrée côté serveur (une fois ST chargé)
     return S;
 }
 function save() {
@@ -153,133 +168,81 @@ export function effectiveMode() {
 // ---------------------------------------------------------------------------------------------------------------
 const BOOST = ':not(#fld_x):not(#fld_y)';
 
-function paintTarget() {
-    if (S.paint !== 'auto') return S.paint;
-    return detectPaint() || 'mes_text';
-}
-
-/** Détecte quel élément porte le fond des bulles dans le thème courant (style désactivé le temps de la mesure). */
-let paintCache = null;
-function detectPaint() {
-    try {
-        const mes = document.querySelector('#chat .mes[is_system="false"], #chat .mes');
-        if (!mes) return paintCache;
-        const el = document.getElementById(STYLE_ID);
-        const wasDisabled = el ? el.disabled : false;
-        if (el) el.disabled = true;
-        const alpha = (node) => {
-            if (!node) return 0;
-            const m = getComputedStyle(node).backgroundColor.match(/[\d.]+/g);
-            return m ? (m.length > 3 ? Number(m[3]) : 1) : 0;
-        };
-        let res = 'none';
-        if (alpha(mes.querySelector('.mes_text')) > 0.05) res = 'mes_text';
-        else if (alpha(mes.querySelector('.mes_block')) > 0.05) res = 'mes_block';
-        else if (alpha(mes) > 0.05) res = 'mes';
-        if (el) el.disabled = wasDisabled;
-        paintCache = res;
-        return res;
-    } catch { return paintCache; }
-}
+/**
+ * Conteneurs HORS #chat qui reçoivent les variables --SmartTheme* et color-scheme :
+ *  - les enfants directs de <body> sauf #sheld (barre du haut, tiroirs, popups, menus, toasts…) ;
+ *  - les enfants de #sheld sauf #chat (en-tête, barre d'envoi…).
+ * Rien n'est posé sur :root / <body> / #sheld / #chat : les messages héritent donc EXACTEMENT des valeurs d'origine.
+ */
+const SCOPES = (H) => [`${H} body > :not(#sheld)`, `${H} #sheld > :not(#chat)`];
+const NOCHAT = ':not(#chat *)';
 
 export function buildCss(p, s) {
     const H = `html.fld-active[data-fld-mode="${p.mode}"]${BOOST}`;
     const [tr, tg, tb] = p.rgb;
     const out = [];
-    // 1) Variables SillyTavern + variables propres (toujours, même en mode Doux)
-    out.push(`${H} {
+    const scopes = SCOPES(H).join(',\n');
+    // 1) Variables SillyTavern + color-scheme, uniquement hors #chat (toujours, même en mode Doux)
+    out.push(`${scopes} {
   color-scheme: ${p.scheme} !important;
+  color: ${p.text} !important;
   --SmartThemeBodyColor: ${p.text} !important;
   --SmartThemeEmColor: ${p.em} !important;
   --SmartThemeUnderlineColor: ${p.text} !important;
   --SmartThemeQuoteColor: ${p.quote} !important;
   --SmartThemeBlurTintColor: ${p.panel} !important;
-  --SmartThemeChatTintColor: ${p.bg} !important;
-  --SmartThemeUserMesBlurTintColor: ${p.user} !important;
-  --SmartThemeBotMesBlurTintColor: ${p.bot} !important;
   --SmartThemeBorderColor: ${p.border} !important;
   --SmartThemeShadowColor: ${p.shadow} !important;
   --SmartThemeFastUIBGColor: ${p.bg} !important;
   --SmartThemeCheckboxBgColorR: ${tr} !important;
   --SmartThemeCheckboxBgColorG: ${tg} !important;
   --SmartThemeCheckboxBgColorB: ${tb} !important;
-  --fld-bg: ${p.bg}; --fld-panel: ${p.panel}; --fld-input: ${p.input}; --fld-text: ${p.text};
-  --fld-bot: ${p.bot}; --fld-user: ${p.user}; --fld-user-text: ${p.userText}; --fld-em: ${p.em};
+}`);
+    // Variables propres (API pour votre CSS) + color-scheme du document (canevas, barre de défilement racine)
+    out.push(`${H} {
+  color-scheme: ${p.scheme} !important;
+  --fld-bg: ${p.bg}; --fld-panel: ${p.panel}; --fld-input: ${p.input}; --fld-text: ${p.text}; --fld-em: ${p.em};
 }`);
     if (s.intensity !== 'total') return out.join('\n');
 
-    // 2) Mode Total : on écrase aussi les règles en dur du thème
-    const paint = paintTarget();
-    const USER = `#chat .mes[is_user="true"]`;
-    const BOT = `#chat .mes[is_user="false"]`;
+    // 2) Mode Total : on écrase aussi les règles en dur du thème (JAMAIS les bulles / messages)
     const sel = (list, tail = '') => list.map((x) => `${H} ${x}${tail}`).join(',\n');
 
     // Page
-    out.push(`${H},\n${H} body {\n  background-color: ${p.bg} !important;\n  color: ${p.text} !important;\n  color-scheme: ${p.scheme} !important;\n}`);
+    out.push(`${H},\n${H} body {\n  background-color: ${p.bg} !important;\n}`);
     out.push(`${H} #preloader {\n  background-color: ${p.bg} !important;\n  color: ${p.text} !important;\n}`);
     if (s.hideBg) out.push(`${sel(['#bg1', '#bg_custom'])} {\n  background-image: none !important;\n  background-color: ${p.bg} !important;\n}`);
-    out.push(`${sel(['#sheld', '#chat'])} {\n  background-color: ${s.hideBg ? p.bg : 'transparent'} !important;\n  color: ${p.text} !important;\n}`);
-
-    // Texte hors bulle
-    out.push(`${sel(['#chat .mes', '#chat .mes .name_text', '#chat .mes .ch_name', '#chat .mes .mes_timer', '#chat .mes .mesIDDisplay', '#chat .mes .tokenCounterDisplay', '#chat .mes .mes_buttons', '#chat .mes .extraMesButtons'])} {\n  color: ${p.text} !important;\n}`);
-
-    // Bulles : la cible porte le fond, les deux autres niveaux sont transparents (comme dans iMessage Dark)
-    if (paint !== 'none') {
-        const levels = { mes_text: '.mes_text', mes_block: '.mes_block', mes: '' };
-        const mine = levels[paint] ?? '.mes_text';
-        const others = Object.entries(levels).filter(([k]) => k !== paint).map(([, v]) => v);
-        const at = (base, lvl) => `${base} ${lvl}`.trim();
-        out.push(`${sel([at(USER, mine)])} {\n  background-color: ${p.user} !important;\n  color: ${p.userText} !important;\n}`);
-        out.push(`${sel([at(BOT, mine)])} {\n  background-color: ${p.bot} !important;\n  color: ${p.text} !important;\n}`);
-        const transp = [];
-        for (const o of others) transp.push(at('#chat .mes', o));
-        if (transp.length) out.push(`${sel(transp)} {\n  background-color: transparent !important;\n  box-shadow: none !important;\n}`);
-    }
-
-    // Texte DANS les bulles
-    const inUser = (t) => `${USER} .mes_text ${t}`;
-    const inBot = (t) => `${BOT} .mes_text ${t}`;
-    const blocks = ['p', 'li', 'ul', 'ol', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'strong', 'b', 'u', 'td', 'th', 'summary'];
-    out.push(`${sel([inBot(''), ...blocks.map(inBot)])} {\n  color: ${p.text} !important;\n}`);
-    out.push(`${sel([inUser(''), ...blocks.map(inUser)])} {\n  color: ${p.userText} !important;\n}`);
-    out.push(`${sel([inBot('em'), inBot('i'), inBot('em *'), inBot('i *'), inBot('q em'), inBot('q i')])} {\n  color: ${p.em} !important;\n}`);
-    out.push(`${sel([inUser('em'), inUser('i'), inUser('em *'), inUser('i *'), inUser('q em'), inUser('q i')])} {\n  color: ${p.userEm} !important;\n}`);
-    out.push(`${sel([inBot('q'), inBot('q *')])} {\n  color: ${p.quote} !important;\n}`);
-    out.push(`${sel([inUser('q'), inUser('q *')])} {\n  color: ${p.userText} !important;\n}`);
-    out.push(`${sel([inBot('a'), inBot('a *')])} {\n  color: ${p.link} !important;\n}`);
-    out.push(`${sel([inUser('a'), inUser('a *')])} {\n  color: ${p.userText} !important;\n  text-decoration: underline !important;\n}`);
-    out.push(`${sel(['#chat .mes .mes_text blockquote', '#chat .mes .mes_text pre', '#chat .mes .mes_text code'])} {\n  background-color: ${p.codeBg} !important;\n  border-color: ${p.border} !important;\n}`);
-    out.push(`${sel(['#chat .mes .mes_text blockquote'])} {\n  border-left-color: ${p.quote} !important;\n}`);
-    out.push(`${sel(['#chat .mes .mes_text hr'])} {\n  border-color: ${p.border} !important;\n}`);
+    out.push(`${sel(['#sheld', '#chat'])} {\n  background-color: ${s.hideBg ? p.bg : 'transparent'} !important;\n}`);
 
     // Barre d'envoi (couleurs UNIQUEMENT : ni position, ni transform, ni filter, ni hauteur)
     out.push(`${sel(['#form_sheld', '#send_form', '#nonQRFormItems', '#qr--bar', '#qr--bar .qr--buttons'])} {\n  background-color: ${p.bg} !important;\n  border-color: ${p.border} !important;\n  color: ${p.text} !important;\n}`);
-    out.push(`${sel(['#send_textarea'])} {\n  background-color: ${p.input} !important;\n  color: ${p.text} !important;\n  caret-color: ${p.user} !important;\n  border-color: ${p.border} !important;\n  -webkit-text-fill-color: ${p.text} !important;\n}`);
+    out.push(`${sel(['#send_textarea'])} {\n  background-color: ${p.input} !important;\n  color: ${p.text} !important;\n  caret-color: ${p.accent} !important;\n  border-color: ${p.border} !important;\n  -webkit-text-fill-color: ${p.text} !important;\n}`);
     out.push(`${sel(['#send_textarea'], '::placeholder')} {\n  color: ${p.em} !important;\n  -webkit-text-fill-color: ${p.em} !important;\n  opacity: 1 !important;\n}`);
     out.push(`${sel(['#leftSendForm', '#rightSendForm', '#leftSendForm > *', '#rightSendForm > *', '#options_button', '#send_but', '#mes_continue', '#mes_impersonate', '#extensionsMenuButton', '#rightSendForm .interactable'])} {\n  color: ${p.text} !important;\n}`);
 
     // Barre du haut, tiroirs, panneaux, menus, popups
     out.push(`${sel(['#top-bar', '#top-settings-holder'])} {\n  background-color: ${p.panel} !important;\n  color: ${p.text} !important;\n  border-color: ${p.border} !important;\n}`);
     out.push(`${sel(['#top-settings-holder .drawer-icon', '#top-bar .drawer-icon', '.drawer-icon', '#top-settings-holder .drawer-toggle'])} {\n  color: ${p.text} !important;\n}`);
-    out.push(`${sel(['.drawer-content', '.options-content', '.list-group', '#extensionsMenu', '#options', '.popup', '.popup-content', '.popup-body', '.dialogue_popup', '.ui-widget-content', '.ui-menu', '.select2-dropdown', '.select2-container--default .select2-results__options', '#character_popup', '.shadow_popup', '.wi-card-entry', '.inline-drawer-content'])} {\n  background-color: ${p.panel} !important;\n  color: ${p.text} !important;\n  border-color: ${p.border} !important;\n}`);
+    out.push(`${sel(['.drawer-content', '.options-content', '.list-group', '#extensionsMenu', '#options', '.popup', '.popup-content', '.popup-body', '.dialogue_popup', '.ui-widget-content', '.ui-menu', '.select2-dropdown', '.select2-container--default .select2-results__options', '#character_popup', '.shadow_popup', '.wi-card-entry', '.inline-drawer-content'].map((x) => x + NOCHAT))} {\n  background-color: ${p.panel} !important;\n  color: ${p.text} !important;\n  border-color: ${p.border} !important;\n}`);
     out.push(`${sel(['.popup', '.drawer-content', '.options-content', '.list-group'])} {\n  box-shadow: 0 0 14px ${p.shadow} !important;\n}`);
     const txt = ['label', 'p', 'h1', 'h2', 'h3', 'h4', 'h5', 'b', 'strong', 'summary', 'li', 'td', 'th', 'small:not(.opacity50)', '.title_restorable', '.inline-drawer-header b'];
-    out.push(`${sel(['.drawer-content', '.popup', '.options-content', '.list-group'].flatMap((c) => txt.map((t) => `${c} ${t}`)))} {\n  color: ${p.text} !important;\n}`);
-    out.push(`${sel(['.drawer-content a:not(.menu_button)', '.popup a:not(.menu_button)', '.options-content a'])} {\n  color: ${p.link} !important;\n}`);
+    out.push(`${sel(['.drawer-content', '.popup', '.options-content', '.list-group'].flatMap((c) => txt.map((t) => `${c} ${t}`)).map((x) => x + NOCHAT))} {\n  color: ${p.text} !important;\n}`);
+    out.push(`${sel(['.drawer-content a:not(.menu_button)', '.popup a:not(.menu_button)', '.options-content a'].map((x) => x + NOCHAT))} {\n  color: ${p.link} !important;\n}`);
     out.push(`${sel(['.list-group-item:hover', '.options-content a:hover', '.options-content .list-group-item:hover'])} {\n  background-color: ${p.input} !important;\n}`);
 
-    // Champs et boutons
-    const fields = ['.text_pole', 'textarea:not(#send_textarea)', 'select', 'input[type="text"]', 'input[type="search"]', 'input[type="number"]', 'input[type="password"]', 'input[type="time"]', 'input[type="url"]', 'input[type="email"]', '.select2-selection', '.select2-search__field', '.select2-selection__rendered'];
+    // Champs et boutons (hors messages : le textarea d'édition d'un message est dans .mes_text, on n'y touche pas)
+    const fields = ['.text_pole', 'textarea:not(#send_textarea)', 'select', 'input[type="text"]', 'input[type="search"]', 'input[type="number"]', 'input[type="password"]', 'input[type="time"]', 'input[type="url"]', 'input[type="email"]', '.select2-selection', '.select2-search__field', '.select2-selection__rendered'].map((x) => x + NOCHAT);
     out.push(`${sel(fields)} {\n  background-color: ${p.input} !important;\n  color: ${p.text} !important;\n  border-color: ${p.border} !important;\n  -webkit-text-fill-color: ${p.text} !important;\n}`);
-    out.push(`${sel(['.text_pole', 'textarea:not(#send_textarea)', 'input[type="text"]', 'input[type="search"]'], '::placeholder')} {\n  color: ${p.em} !important;\n  opacity: 1 !important;\n}`);
-    out.push(`${sel(['.menu_button', '.menu_button.interactable', 'button.menu_button'])} {\n  background-color: ${p.input} !important;\n  color: ${p.text} !important;\n  border-color: ${p.border} !important;\n}`);
-    out.push(`${sel(['hr', '.inline-drawer-header', '.inline-drawer-toggle'])} {\n  border-color: ${p.border} !important;\n}`);
+    out.push(`${sel(['.text_pole', 'textarea:not(#send_textarea)', 'input[type="text"]', 'input[type="search"]'].map((x) => x + NOCHAT), '::placeholder')} {\n  color: ${p.em} !important;\n  opacity: 1 !important;\n}`);
+    out.push(`${sel(['.menu_button', '.menu_button.interactable', 'button.menu_button'].map((x) => x + NOCHAT))} {\n  background-color: ${p.input} !important;\n  color: ${p.text} !important;\n  border-color: ${p.border} !important;\n}`);
+    out.push(`${sel(['hr', '.inline-drawer-header', '.inline-drawer-toggle'].map((x) => x + NOCHAT))} {\n  border-color: ${p.border} !important;\n}`);
 
-    // Barres de défilement
-    out.push(`${H} * {\n  scrollbar-color: ${p.scroll} transparent;\n}`);
-    out.push(`${H} ::-webkit-scrollbar-thumb,\n${H} ::-webkit-scrollbar-thumb:vertical {\n  background-color: ${p.scroll} !important;\n}`);
-    out.push(`${H} ::-webkit-scrollbar-track,\n${H} ::-webkit-scrollbar-corner {\n  background: transparent !important;\n}`);
-    out.push(`${H} ::selection {\n  background: ${rgba(p.user, 0.35)} !important;\n}`);
+    // Barres de défilement (pas à l'intérieur des messages)
+    // scrollbar-color est HÉRITÉ : on l'évite sur html / body / #sheld / #chat pour qu'il n'atteigne jamais les messages
+    out.push(`${sel(['*:not(body):not(#sheld):not(#chat)' + NOCHAT])} {\n  scrollbar-color: ${p.scroll} transparent;\n}`);
+    out.push(`${sel([NOCHAT + '::-webkit-scrollbar-thumb', NOCHAT + '::-webkit-scrollbar-thumb:vertical'])} {\n  background-color: ${p.scroll} !important;\n}`);
+    out.push(`${sel([NOCHAT + '::-webkit-scrollbar-track', NOCHAT + '::-webkit-scrollbar-corner'])} {\n  background: transparent !important;\n}`);
+    out.push(`${SCOPES(H).map((x) => `${x} ::selection`).join(',\n')} {\n  background: ${rgba(p.accent, 0.35)} !important;\n}`);
     return out.join('\n');
 }
 
@@ -290,7 +253,6 @@ const root = () => document.documentElement;
 let applying = false;
 let lastApplied = null;          // { mode, bg, scheme }
 let origThemeColor = null;       // contenu d'origine de <meta name="theme-color"> (avant forçage)
-let origAldMode;                 // data-ald-mode d'origine (undefined = pas mesuré)
 let headObserver = null;
 let rootObserver = null;
 let metaObserver = null;
@@ -298,8 +260,6 @@ let lastReappend = 0;
 let reappendTimer = null;
 let reappendBurst = 0;
 let burstStart = 0;
-
-const aldDetected = () => !!document.getElementById('ald_style') || !!(extension_settings && extension_settings.autolightdark);
 
 function getMeta(create) {
     let m = document.querySelector('meta[name="theme-color"]');
@@ -320,26 +280,6 @@ function ensureStyleEl() {
     return el;
 }
 
-function setInlineVars(p) {
-    // Utile seulement face à autolightdark, qui pose ses variables en style inline !important (plus fort qu'une feuille de style).
-    const st = root().style;
-    const v = {
-        '--SmartThemeBodyColor': p.text, '--SmartThemeEmColor': p.em, '--SmartThemeBlurTintColor': p.panel,
-        '--SmartThemeChatTintColor': p.bg, '--SmartThemeUserMesBlurTintColor': p.user, '--SmartThemeBotMesBlurTintColor': p.bot,
-        '--SmartThemeBorderColor': p.border, '--SmartThemeShadowColor': p.shadow, '--SmartThemeQuoteColor': p.quote,
-        '--SmartThemeUnderlineColor': p.text,
-    };
-    for (const [k, val] of Object.entries(v)) { if (st.getPropertyValue(k) !== val || st.getPropertyPriority(k) !== 'important') st.setProperty(k, val, 'important'); }
-    st.setProperty('color-scheme', p.scheme, 'important');
-}
-function clearInlineVars() {
-    const st = root().style;
-    ['--SmartThemeBodyColor', '--SmartThemeEmColor', '--SmartThemeBlurTintColor', '--SmartThemeChatTintColor',
-        '--SmartThemeUserMesBlurTintColor', '--SmartThemeBotMesBlurTintColor', '--SmartThemeBorderColor',
-        '--SmartThemeShadowColor', '--SmartThemeQuoteColor', '--SmartThemeUnderlineColor', 'color-scheme'].forEach((k) => st.removeProperty(k));
-}
-
-let inlineSet = false;
 function apply(opts = {}) {
     if (!S || typeof document === 'undefined' || !root()) return;
     applying = true;
@@ -351,13 +291,6 @@ function apply(opts = {}) {
             r.classList.remove('fld-active', 'fld-light', 'fld-dark');
             r.removeAttribute('data-fld-mode');
             r.setAttribute('data-fld-setting', S.mode);
-            if (inlineSet) { clearInlineVars(); inlineSet = false; }
-            const ald = document.getElementById('ald_style'); if (ald) ald.disabled = false;
-            if (origAldMode !== undefined) {
-                if (origAldMode === null) r.removeAttribute('data-ald-mode'); else r.setAttribute('data-ald-mode', origAldMode);
-                origAldMode = undefined;
-                document.dispatchEvent(new Event('visibilitychange')); // autolightdark se recalcule
-            }
             if (origThemeColor !== null) { const m = getMeta(false); if (m && origThemeColor !== undefined) m.setAttribute('content', origThemeColor); origThemeColor = null; }
             if (origStatus !== null) { const m = getStatusMeta(false); if (m) { if (origStatus === '') m.remove(); else m.setAttribute('content', origStatus); } origStatus = null; }
             lastApplied = null;
@@ -379,15 +312,6 @@ function apply(opts = {}) {
         r.classList.toggle('fld-dark', eff === 'dark');
         if (r.getAttribute('data-fld-mode') !== eff) r.setAttribute('data-fld-mode', eff);
         if (r.getAttribute('data-fld-setting') !== S.mode) r.setAttribute('data-fld-setting', S.mode);
-        // Compatibilité autolightdark : on réécrit html[data-ald-mode] avec NOTRE mode, on neutralise son <style>
-        const ald = document.getElementById('ald_style');
-        const hasAld = !!ald || r.hasAttribute('data-ald-mode') || aldDetected();
-        if (ald) ald.disabled = true;
-        if (hasAld) {
-            if (origAldMode === undefined) origAldMode = r.getAttribute('data-ald-mode');
-            if (r.getAttribute('data-ald-mode') !== eff) r.setAttribute('data-ald-mode', eff);
-            setInlineVars(p); inlineSet = true;
-        } else if (inlineSet) { clearInlineVars(); inlineSet = false; }
         // theme-color + barre d'état
         if (S.themeColorMeta) {
             const m = getMeta(true);
@@ -430,7 +354,6 @@ function onHeadMutation() {
     if (!lastApplied) return;
     const el = document.getElementById(STYLE_ID);
     if (!el) { apply(); return; }
-    if (document.getElementById('ald_style') && !document.getElementById('ald_style').disabled) apply();
     if (document.head.lastElementChild === el) return;
     const wait = 150 - (Date.now() - lastReappend);
     if (wait <= 0) reappend(); else if (!reappendTimer) reappendTimer = setTimeout(reappend, wait);
@@ -438,11 +361,7 @@ function onHeadMutation() {
 function onRootMutation() {
     if (applying || !lastApplied) return;
     const r = root();
-    if (r.getAttribute('data-fld-mode') !== lastApplied.mode || !r.classList.contains('fld-active')
-        || (r.hasAttribute('data-ald-mode') && r.getAttribute('data-ald-mode') !== lastApplied.mode)
-        || (inlineSet && r.style.getPropertyValue('--SmartThemeBodyColor') !== buildPalette(lastApplied.mode, S.colors[lastApplied.mode]).text)) {
-        apply();
-    }
+    if (r.getAttribute('data-fld-mode') !== lastApplied.mode || !r.classList.contains('fld-active')) apply();
 }
 function onMetaMutation() {
     if (applying || !lastApplied || !S.themeColorMeta) return;
@@ -452,7 +371,7 @@ function onMetaMutation() {
 function startObservers() {
     if (typeof MutationObserver === 'undefined') return;
     if (!headObserver && document.head) { headObserver = new MutationObserver(onHeadMutation); headObserver.observe(document.head, { childList: true }); }
-    if (!rootObserver) { rootObserver = new MutationObserver(onRootMutation); rootObserver.observe(root(), { attributes: true, attributeFilter: ['data-fld-mode', 'data-ald-mode', 'class', 'style'] }); }
+    if (!rootObserver) { rootObserver = new MutationObserver(onRootMutation); rootObserver.observe(root(), { attributes: true, attributeFilter: ['data-fld-mode', 'class'] }); }
     if (!metaObserver) {
         const m = getMeta(false);
         if (m) { metaObserver = new MutationObserver(onMetaMutation); metaObserver.observe(m, { attributes: true, attributeFilter: ['content'] }); }
@@ -536,7 +455,6 @@ const $id = (id) => document.getElementById(id);
 function panelHtml() {
     const opt = (v, t) => `<option value="${v}">${t}</option>`;
     const colorRows = (m) => COLOR_KEYS.map((k) => `<label class="fld-row" for="fld_c_${m}_${k}"><span>${COLOR_LABEL[k]}</span><input type="color" id="fld_c_${m}_${k}" data-mode="${m}" data-key="${k}"></label>`).join('');
-    const preview = (m) => `<div class="fld-prev" id="fld_prev_${m}"><div class="fld-prev-bot">Salut ! <em>*sourit*</em> <q>« Comment ça va ? »</q></div><div class="fld-prev-user">Très bien, merci 🙂</div></div>`;
     return `<div id="fld_settings" class="fld-settings">
   <div class="inline-drawer">
     <div class="inline-drawer-toggle inline-drawer-header">
@@ -564,8 +482,7 @@ function panelHtml() {
       <label class="checkbox_label" for="fld_transition"><input type="checkbox" id="fld_transition"><span>Transition en fondu entre les modes</span></label>
       <label class="checkbox_label" for="fld_meta"><input type="checkbox" id="fld_meta"><span>Mettre à jour theme-color / barre d'état</span></label>
       <label class="checkbox_label" for="fld_toast"><input type="checkbox" id="fld_toast"><span>Notification au changement rapide</span></label>
-      <label for="fld_paint">Élément portant le fond des bulles</label>
-      <select id="fld_paint" class="text_pole">${opt('mes_text', '.mes_text (thème type iMessage)')}${opt('mes_block', '.mes_block')}${opt('mes', '.mes (thème ST classique)')}${opt('auto', 'Détection automatique')}${opt('none', 'Ne pas peindre les bulles')}</select>
+      <small class="opacity50">Les bulles de chat (et le texte des messages) ne sont jamais modifiées : elles gardent les couleurs de votre thème / de vos autres extensions.</small>
       <hr>
       <b>Bouton rapide</b>
       <label class="checkbox_label" for="fld_wand"><input type="checkbox" id="fld_wand"><span>Entrée dans le menu baguette ✨ (☀️/🌙)</span></label>
@@ -577,16 +494,14 @@ function panelHtml() {
       </div>
       <hr>
       <b>Couleurs — Clair</b>
-      ${preview('light')}
       <div class="fld-colors">${colorRows('light')}</div>
       <div id="fld_reset_light" class="menu_button">Couleurs Clair par défaut</div>
       <b>Couleurs — Sombre</b>
-      ${preview('dark')}
       <div class="fld-colors">${colorRows('dark')}</div>
       <div id="fld_reset_dark" class="menu_button">Couleurs Sombre par défaut</div>
       <hr>
       <div id="fld_reset" class="menu_button">Tout réinitialiser</div>
-      <small class="opacity50">Pour votre CSS : <code>html[data-fld-mode="light"]</code>, <code>html.fld-dark</code>… (et <code>html[data-ald-mode]</code> est aligné). Si <i>autolightdark</i> est aussi installé, Force Light Dark prend le dessus tant qu'il n'est pas « Désactivé ».</small>
+      <small class="opacity50">Pour votre CSS : <code>html[data-fld-mode="light"]</code>, <code>html.fld-dark</code>… Les messages du chat ne sont jamais touchés.</small>
     </div>
   </div>
 </div>`;
@@ -597,7 +512,7 @@ function refreshUi() {
     const set = (id, v) => { const e = $id(id); if (e && e.value !== String(v)) e.value = v; };
     const chk = (id, v) => { const e = $id(id); if (e) e.checked = !!v; };
     set('fld_mode', S.mode); set('fld_intensity', S.intensity); set('fld_autosrc', S.autoSource);
-    set('fld_lightfrom', S.lightFrom); set('fld_darkfrom', S.darkFrom); set('fld_paint', S.paint);
+    set('fld_lightfrom', S.lightFrom); set('fld_darkfrom', S.darkFrom);
     chk('fld_hidebg', S.hideBg); chk('fld_transition', S.transition); chk('fld_meta', S.themeColorMeta);
     chk('fld_toast', S.toast); chk('fld_wand', S.wandEntry); chk('fld_fabshow', S.fabShow);
     set('fld_fabx', S.fabX); set('fld_faby', S.fabY); set('fld_fabsize', S.fabSize);
@@ -605,18 +520,10 @@ function refreshUi() {
     $id('fld_schedbox').style.display = S.autoSource === 'schedule' ? '' : 'none';
     $id('fld_fabbox').style.display = S.fabShow ? '' : 'none';
     for (const m of ['light', 'dark']) {
-        const p = buildPalette(m, S.colors[m]);
         for (const k of COLOR_KEYS) { const e = $id(`fld_c_${m}_${k}`); if (e && e.value !== S.colors[m][k]) e.value = S.colors[m][k]; }
-        const pv = $id(`fld_prev_${m}`);
-        if (pv) {
-            pv.style.setProperty('--p-bg', p.bg); pv.style.setProperty('--p-bot', p.bot); pv.style.setProperty('--p-user', p.user);
-            pv.style.setProperty('--p-text', p.text); pv.style.setProperty('--p-usertext', p.userText); pv.style.setProperty('--p-em', p.em);
-            pv.style.setProperty('--p-border', p.border);
-        }
     }
     const eff = effectiveMode();
     let st = `Mode actif : <b>${describe()}</b>`;
-    if (eff && aldDetected()) st += '<br><span class="opacity50">autolightdark détecté : Force Light Dark est prioritaire (son style est neutralisé).</span>';
     if (!eff) st += '<br><span class="opacity50">Aucun changement n\'est appliqué au thème.</span>';
     $id('fld_status').innerHTML = st;
     placeFab(); placeWandEntry();
@@ -629,9 +536,8 @@ function bindUi() {
     on('fld_cycle', 'click', () => cycleMode());
     on('fld_intensity', 'change', upd(() => { S.intensity = $id('fld_intensity').value; }));
     on('fld_autosrc', 'change', upd(() => { S.autoSource = $id('fld_autosrc').value; }, true));
-    on('fld_lightfrom', 'change', upd(() => { S.lightFrom = $id('fld_lightfrom').value || DEFAULTS.lightFrom; sanitize(S); }, true));
-    on('fld_darkfrom', 'change', upd(() => { S.darkFrom = $id('fld_darkfrom').value || DEFAULTS.darkFrom; sanitize(S); }, true));
-    on('fld_paint', 'change', upd(() => { S.paint = $id('fld_paint').value; }));
+    on('fld_lightfrom', 'change', upd(() => { S.lightFrom = $id('fld_lightfrom').value || DEFAULTS.lightFrom; Object.assign(S, sanitize(S)); }, true));
+    on('fld_darkfrom', 'change', upd(() => { S.darkFrom = $id('fld_darkfrom').value || DEFAULTS.darkFrom; Object.assign(S, sanitize(S)); }, true));
     on('fld_hidebg', 'change', upd(() => { S.hideBg = $id('fld_hidebg').checked; }));
     on('fld_transition', 'change', upd(() => { S.transition = $id('fld_transition').checked; }));
     on('fld_meta', 'change', upd(() => { S.themeColorMeta = $id('fld_meta').checked; }));
@@ -639,7 +545,7 @@ function bindUi() {
     on('fld_wand', 'change', upd(() => { S.wandEntry = $id('fld_wand').checked; }));
     on('fld_fabshow', 'change', upd(() => { S.fabShow = $id('fld_fabshow').checked; }));
     for (const [id, key] of [['fld_fabx', 'fabX'], ['fld_faby', 'fabY'], ['fld_fabsize', 'fabSize']]) {
-        on(id, 'input', upd(() => { S[key] = Number($id(id).value); sanitize(S); }));
+        on(id, 'input', upd(() => { S[key] = Number($id(id).value); Object.assign(S, sanitize(S)); }));
     }
     document.querySelectorAll('#fld_settings input[type="color"]').forEach((e) => {
         e.addEventListener('input', () => { S.colors[e.dataset.mode][e.dataset.key] = e.value.toLowerCase(); save(); apply(); });
@@ -649,7 +555,7 @@ function bindUi() {
     }
     on('fld_reset', 'click', () => {
         if (!confirm('Réinitialiser tous les réglages de Force Light Dark ?')) return;
-        const fresh = sanitize(JSON.parse(JSON.stringify(DEFAULTS)));
+        const fresh = sanitize({});
         for (const k of Object.keys(S)) delete S[k];
         Object.assign(S, fresh);
         save(); apply({ fade: true });
@@ -687,7 +593,7 @@ function waitFor(fn, tries = 60, every = 250) {
 
 jQuery(async () => {
     try {
-        loadSettings(); // extension_settings est maintenant chargé (vérité)
+        loadSettings(true); // extension_settings est maintenant chargé (vérité) ; migre les anciens réglages
         apply();
         const host = document.getElementById('extensions_settings2') || document.getElementById('extensions_settings');
         if (host) {
@@ -697,8 +603,7 @@ jQuery(async () => {
         }
         waitFor(() => (S.wandEntry ? placeWandEntry() === true : true));
         try {
-            eventSource.on(event_types.SETTINGS_UPDATED, () => { loadSettings(); apply(); });
-            eventSource.on(event_types.CHAT_CHANGED, () => { if (S.paint === 'auto') apply(); });
+            eventSource.on(event_types.SETTINGS_UPDATED, () => { loadSettings(true); apply(); });
         } catch { /* événements indisponibles */ }
         // rattrapage : d'autres extensions / le thème peuvent injecter leur CSS après nous
         setTimeout(() => apply(), 1500);
