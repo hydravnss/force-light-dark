@@ -1,0 +1,14 @@
+{
+    "display_name": "Force Light Dark",
+    "loading_order": 999,
+    "requires": [],
+    "optional": [],
+    "js": "index.js",
+    "css": "style.css",
+    "author": "hydravnss",
+    "version": "1.0.0",
+    "homePage": "https://github.com/hydravnss/force-light-dark",
+    "minimum_client_version": "1.12.0",
+    "auto_update": true,
+    "description": "FR: FORCE le mode clair ou sombre par-dessus le thème (même s'il impose des couleurs sombres en dur avec !important) : Forcer Clair, Forcer Sombre, Auto (suit l'iPhone en direct), Désactivé. Bouton rapide, horaire, couleurs personnalisables. EN: forces light/dark over any theme."
+}

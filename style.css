@@ -1,0 +1,61 @@
+/* Force Light Dark — les couleurs sont injectées par index.js (<style id="fld-style">, dernier dans <head>). */
+
+/* Bouton flottant (position fixed, SANS transform/filter : n'affecte aucun ancêtre de la barre d'envoi) */
+.fld-fab {
+    position: fixed;
+    z-index: 4000;
+    width: var(--fld-fab-size, 44px);
+    height: var(--fld-fab-size, 44px);
+    line-height: var(--fld-fab-size, 44px);
+    font-size: calc(var(--fld-fab-size, 44px) * 0.5);
+    text-align: center;
+    border-radius: 50%;
+    cursor: pointer;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-tap-highlight-color: transparent;
+    background: rgba(128, 128, 128, 0.35);
+    border: 1px solid rgba(128, 128, 128, 0.5);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+    opacity: 0.85;
+}
+.fld-fab:active { opacity: 1; }
+html.fld-light .fld-fab { background: rgba(255, 255, 255, 0.7); border-color: rgba(0, 0, 0, 0.2); }
+html.fld-dark .fld-fab { background: rgba(60, 60, 60, 0.7); border-color: rgba(255, 255, 255, 0.2); }
+
+/* Entrée du menu baguette */
+#fld_wand_button .fld-wand-icon { font-style: normal; min-width: 1.25em; text-align: center; }
+
+/* Transition optionnelle (active 600 ms seulement pendant un changement de mode) */
+html.fld-fade,
+html.fld-fade body,
+html.fld-fade body * {
+    transition: background-color 0.35s ease, color 0.35s ease, border-color 0.35s ease !important;
+}
+
+/* Panneau de réglages */
+.fld-settings select,
+.fld-settings .menu_button { width: 100%; box-sizing: border-box; }
+.fld-settings .fld-status { margin: 4px 0 8px; }
+.fld-settings .fld-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 4px 0; }
+.fld-settings .fld-row input[type="range"] { flex: 1; max-width: 55%; }
+.fld-settings .fld-row input[type="color"] { width: 48px; height: 28px; padding: 0; border: 1px solid var(--SmartThemeBorderColor); background: none; }
+.fld-settings .fld-row input[type="time"] { width: auto; }
+.fld-settings .fld-quick { margin: 6px 0; }
+
+/* Aperçu */
+.fld-prev {
+    margin: 6px 0;
+    padding: 10px;
+    border-radius: 12px;
+    background: var(--p-bg, #000);
+    border: 1px solid var(--p-border, rgba(128, 128, 128, 0.4));
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    font-size: 0.95em;
+}
+.fld-prev > div { max-width: 80%; padding: 6px 12px; border-radius: 16px; }
+.fld-prev-bot { align-self: flex-start; background: var(--p-bot, #262628); color: var(--p-text, #fff); }
+.fld-prev-bot em { color: var(--p-em, #919191); }
+.fld-prev-user { align-self: flex-end; background: var(--p-user, #0a84ff); color: var(--p-usertext, #fff); }
